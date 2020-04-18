@@ -50,11 +50,11 @@ def load_validate_data(file_to_process):
                 load_statement = """
                             copy
                             {0}
-                            from 's3://realtimecmsairflowprocessdata/processing_data/facility_highway_transaction_splitted_data_files/{1}'
+                            from 'my_cloud://my_directory/splitted_data_files/{1}'
                             access_key_id '{2}' secret_access_key '{3}'
                             delimiter '{4}' region '{5}' """.format(
-                            'rt_stock_trans',str(file_to_process)+'_'+str(curr_ts_1),'AKIAJJVPU6YXOFXS3OPA', 'U9CwmfKa3+ISYXvmSMPGc9DV2RO3kyyXm9CEKDL4',
-                            ',', 'ap-south-1')
+                            'rt_stock_trans',str(file_to_process)+'_'+str(curr_ts_1),'key_1', 'key_2',
+                            ',', 'test_region')
                             
                 cursor.execute(load_statement)
                 conn.commit()
