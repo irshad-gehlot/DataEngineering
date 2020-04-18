@@ -1,0 +1,79 @@
+import pandas as pd
+import logging
+import os
+import datetime
+import dateutil.tz
+import psycopg2.extras
+
+def getfiles(dirpath):
+    a = [s for s in os.listdir(dirpath)
+         if os.path.isfile(os.path.join(dirpath, s))]
+    a.sort(key=lambda s: os.path.getmtime(os.path.join(dirpath, s)))
+    return a
+    
+def load_validate_data(file_to_process):
+    if file_to_process:
+        folder_path = '/my_dir/processing_data/transactions/'
+        filename = '%s%s'%(folder_path,file_to_process)
+        conn = psycopg2.connect(dbname='my_db',
+                                host='my_host',
+                                port='5439', user='my_user', password='****')
+        cursor = conn.cursor()                
+        chunksize = 10 ** 6        
+        col_names =  ['col0','col1','col2', 'col3', 'col4', 'col5', 'col6', 'col7', 'col8', 'col9', 'col10', 'col11']
+        
+        for chunk in pd.read_csv(filename,sep=',',chunksize=chunksize,names=col_names,dtype=str):
+            # adding timestamp
+            asia_kolkata = dateutil.tz.gettz('Asia/Kolkata')
+            in_time = datetime.datetime.now(asia_kolkata)
+            curr_ts = in_time.strftime('%Y-%m-%d %H:%M:%S')
+            curr_ts_1 = in_time.strftime('%Y_%m_%d_%H_%M_%S')
+            
+            curr_df = pd.DataFrame(chunk)
+            curr_df['col12'] = ''
+            curr_df['col12'] = curr_ts
+            index_from_last_df = pd.read_csv('/my_ref_dir/index.txt',names=['col0'])
+            index_from_last_file  = index_from_last_df['col0'][0]
+            
+            if curr_df.shape[0] > 0:
+                # Adding index
+                if index_from_last_file > 0:
+                    curr_df.index = curr_df.index + index_from_last_file + 1
+                else:
+                    curr_df.index = curr_df.index + 1                
+                index_from_last_df['col0'][0] = curr_df.index[-1]
+                index_from_last_df.to_csv('/my_ref_dir/index.txt',index=False,header=0)
+                
+                curr_df.to_csv('/my_directory/splitted_data_files/'+str(file_to_process)+'_'+str(curr_ts_1),sep=',',header=0)
+                
+                load_statement = """
+                            copy
+                            {0}
+                            from 's3://realtimecmsairflowprocessdata/processing_data/facility_highway_transaction_splitted_data_files/{1}'
+                            access_key_id '{2}' secret_access_key '{3}'
+                            delimiter '{4}' region '{5}' """.format(
+                            'rt_stock_trans',str(file_to_process)+'_'+str(curr_ts_1),'AKIAJJVPU6YXOFXS3OPA', 'U9CwmfKa3+ISYXvmSMPGc9DV2RO3kyyXm9CEKDL4',
+                            ',', 'ap-south-1')
+                            
+                cursor.execute(load_statement)
+                conn.commit()
+                conn.close()
+                
+                mv_command = 'mv %s /my_directory/processed_data/'%filename
+                os.system(mv_command)
+            else:
+                print('!!!Record size is 0')
+                mv_command = 'mv %s /my_directory/processed_data/'%filename
+                os.system(mv_command)
+                
+if __name__ == '__main__':
+    while(1):    	
+    	time.sleep(300)    	
+    	file_list = getfiles('/my_directory/')
+    	        
+    	if len (file_list) > 0:
+            for each in file_list:
+                load_validate_data(each)
+    	else:
+            print ('No Files to process !!!')
+    	
