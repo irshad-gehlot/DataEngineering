@@ -1,0 +1,101 @@
+import pyspark
+from pyspark import SparkContext, SparkConf
+from pyspark.streaming import StreamingContext
+import sys
+import re
+
+
+def LogPattern():
+    """    
+     Retrieves a regex Pattern for parsing Apache access logs.
+    """
+    ddd = "\\d{1,3}"
+    ip = f"({ddd}.{ddd}.{ddd}.{ddd})?"
+    client = "(\\S+)"
+    user = "(\\S+)"
+    dateTime = "(\\[.+?\\])"
+    request = "\"(.*?)\""
+    status = "(\\d{3})"
+    bytes = "(\\S+)"
+    referer = "\"(.*?)\""
+    agent = "\"(.*?)\""
+    regex = f"{ip} {client} {user} {dateTime} {request} {status} {bytes} {referer} {agent}"
+    pattern = re.compile(regex)
+    return pattern
+
+def getStatus(inputStr):
+    pattern = LogPattern()
+    logLine = pattern.match(inputStr)
+    if logLine:
+        return logLine.group().split(" ")[5]
+    else:
+        return "[error]"
+
+def getSuccessFailure(inputString):
+    try:
+        statusCode = int(inputString)
+        if (statusCode >= 200 and statusCode < 300):
+            return "Success"
+        elif(statusCode >= 500 and statusCode < 600):
+            return "Failure"
+    except:
+        return "Other"
+
+if __name__ == "__main__":
+    window = sys.argv[1]
+    host = sys.argv[2]
+    port = sys.argv[3]
+    maxErrorRatio = sys.argv[4]
+    sc = SparkContext("local[*]", "My_Streaming")
+    ssc = StreamingContext(sc, window)
+
+    #Collecting DStream from socket listen to incoming stream of input data
+    lines = ssc.socketTextStream(host, port, pyspark.StorageLevel.MEMORY_AND_DISK_SER)
+
+    #Extracting status field from DStream
+    statuses = lines.map(lambda x: getStatus(x))
+
+    #Mapping status code to Success or Failure
+    successFailure = statuses.map(lambda  y: getSuccessFailure(y))
+
+    #Calculate statuses over a 5-minute window sliding every second
+    #We get DStream containing (Key, Val)
+    #Each key being unique and val being its frequency
+    statusCounts = successFailure.countByValueAndWindow(300, 1)
+
+    previousWindowRdd = sc.emptyRDD[""]
+    alarmTimeCount = 0
+    for rdd, time in statusCounts:
+        newInBatch = rdd.subtract(previousWindowRdd)
+        if (!newInBatch.isEmpty()):
+            totalSuccess = 0
+            totalError = 0
+            ratio = 0.0
+            if (rdd.count() > 0):
+                elements = rdd.collect()
+                for element in elements:
+                    result = element[0]
+                    count = element[1]
+                    if (result == "Success"):
+                        totalSuccess += count
+                    elif (result == "Failure"):
+                        totalError += count
+
+            print("Total success: " + totalSuccess + " Total failure: " + totalError)
+
+            if (totalError + totalSuccess > 100):
+                ratio = float(totalError) / float(totalSuccess)
+
+            if (ratio > float(maxErrorRatio)):
+                if (alarmTimeCount >= 1800):
+                    print("Something is horribly wrong with the server.")
+                    alarmTimeCount = 0
+            else:
+                print("All systems go.")
+        else:
+            if (alarmTimeCount >= 1800):
+                print("The server is down.")
+
+    ssc.checkpoint("C:/checkpoint/")
+    ssc.start()
+    ssc.awaitTermination()
