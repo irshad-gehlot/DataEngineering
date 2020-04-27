@@ -4,7 +4,6 @@ from pyspark.streaming import StreamingContext
 import sys
 import re
 
-
 def LogPattern():
     """    
      Retrieves a regex Pattern for parsing Apache access logs.
