@@ -1,4 +1,4 @@
 # DataEngineering
-Processing Streaming Data
+#Processing Batch Data
 
-It is to demonstrate how to process incoming data using Python and Apache Spark.
+Utility to find how many people are there between 2 people, who are not directly connected, in a social site.
